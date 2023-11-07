@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from itertools import cycle
+from typing import ClassVar
 
 from rich.segment import Segment
 from rich.style import Style
@@ -11,16 +12,35 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.events import Click
 from textual.message import Message
+from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Footer, Log, Tree
 
 class TestCard(Widget, can_focus=True):
 
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "test-card--cursor",
+    }
+
+    DEFAULT_CSS = """
+    TestCard > .test-card--cursor {
+        background: red;
+    }
+    """
+
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
-        Binding("space", "lines", "Cycle Lines")
+        Binding("space", "lines", "Cycle Lines"),
+        Binding("up", "move(0,-1)"),
+        Binding("down", "move(0,1)"),
+        Binding("left", "move(-1,0)"),
+        Binding("right", "move(1,0)"),
+        Binding("enter", "report")
     ]
+
+    row: reactive[int] = reactive(0)
+    col: reactive[int] = reactive(0)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -33,13 +53,22 @@ class TestCard(Widget, can_focus=True):
 
     def on_click(self, event: Click) -> None:
         self.post_message(self.CellPicked(event.style.meta["offset"]))
+        self.row = event.style.meta["offset"] // self.size.width
+        self.col = event.style.meta["offset"] % self.size.width
+
+    def action_report(self) -> None:
+        self.post_message(self.CellPicked((self.row * self.size.width) + self.col))
 
     def render_line(self, y: int) -> Strip:
         lines = cycle(self.lines)
+        cursor_style = self.get_component_rich_style("test-card--cursor")
         return Strip(
             Segment(
                 next(lines),
-                style=Style(color=self.styles.color.rich_color, meta={"offset": (y * self.size.width) + char}),
+                style=(
+                    (cursor_style if y == self.row and char == self.col else Style(color=self.styles.color.rich_color)) +
+                    Style(meta={"offset": (y * self.size.width) + char})
+                ),
             ) for char in range(self.size.width)
         )
 
@@ -49,6 +78,12 @@ class TestCard(Widget, can_focus=True):
 
     def action_refresh(self) -> None:
         self.refresh()
+
+    def action_move(self, colwise: int, rowwise: int) -> None:
+        if rowwise:
+            self.row += rowwise
+        if colwise:
+            self.col += colwise
 
 class TestCardApp(App[None]):
 
